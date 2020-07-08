@@ -44,15 +44,16 @@ public class JobManagerTest
 			manager.getJobStatus(jobId);
 		} catch (JobException ex)
 		{
-			if (JobException.JobErrorCode.JOB_NOT_FOUND.equals(ex.getErrorCode()))
+			if (!JobException.JobErrorCode.JOB_NOT_FOUND.equals(ex.getErrorCode()))
 			{
-				// expected
+				throw ex;
 			}
-			throw ex;
+			// expected
 		}
-		Thread.sleep(1000);
-		Assert.assertEquals(JobConstants.JobStatus.RUNNING, manager.getJobStatus(jobId));
+		Thread.sleep(1100);
+		Assert.assertTrue(manager.isJobRunning(jobId));
 		Thread.sleep(300);
+		Assert.assertTrue(manager.isJobDone(jobId));
 		Assert.assertEquals(JobConstants.JobStatus.SUCCEEDED, manager.getJobStatus(jobId));
 	}
 
