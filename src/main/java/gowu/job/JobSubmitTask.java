@@ -1,28 +1,24 @@
 package gowu.job;
 
+import gowu.job.entities.Job;
+import gowu.job.processors.JobProcessor;
+import gowu.job.storages.JobDirectoryProvider;
+
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class JobSubmitTask implements Runnable, Comparable<JobSubmitTask>
 {
 	private static final Logger logger = Logger.getLogger(JobSubmitTask.class.getName());
-	private JobContext job;
+	private Job job;
 	private JobProcessor jobProcessor;
 	private JobDirectoryProvider jobDirectoryProvider;
-	private JobCallback jobCallback = null;
 
-	public JobSubmitTask(JobContext job, JobProcessor jobProcessor)
+	public JobSubmitTask(Job job, JobProcessor jobProcessor, JobDirectoryProvider jobDirectoryProvider)
 	{
-		this(job, jobProcessor, null);
-	}
-
-	public JobSubmitTask(JobContext job, JobProcessor jobProcessor, JobCallback jobCallback)
-	{
-		super();
 		this.job = job;
 		this.jobProcessor = jobProcessor;
-		this.jobDirectoryProvider = jobProcessor.getJobDirectoryProvider();
-		this.jobCallback = jobCallback;
+		this.jobDirectoryProvider = jobDirectoryProvider;
 	}
 	
 	@Override
@@ -30,14 +26,7 @@ public class JobSubmitTask implements Runnable, Comparable<JobSubmitTask>
 	{
 		try
 		{
-			if (jobCallback == null)
-			{
-				jobProcessor.processJob(job);
-			}
-			else
-			{
-				jobProcessor.processJob(job, jobCallback);
-			}
+			jobProcessor.processJob(job);
 		} catch (JobException ex)
 		{
 			if (ex.getErrorCode().equals(JobException.JobErrorCode.INTERRUPTED))
@@ -45,16 +34,18 @@ public class JobSubmitTask implements Runnable, Comparable<JobSubmitTask>
 				logger.log(Level.INFO, ex.getErrorMessage());
 			} else if (ex.getErrorCode().equals(JobException.JobErrorCode.JOB_NOT_FOUND))
 			{
-				logger.log(Level.INFO, "JobContext {0} cannot be found or no longer exists", job.toString());
+				logger.log(Level.INFO, "Job {0} cannot be found or no longer exists", job.toString());
 			} else
 			{
-				logger.log(Level.WARNING, "JobContext execution error", ex);
+				logger.log(Level.WARNING, "Job execution error", ex);
 				try
 				{
-					jobDirectoryProvider.updateJobStatus(job.getJobId(), JobConstants.JobStatus.ERROR);
+					job = jobDirectoryProvider.getJob(job.getContext().getIdentifier());
+					job.setStatus(JobConstants.JobStatus.ERROR);
+					jobDirectoryProvider.updateJob(job);
 				} catch (JobException e)
 				{
-					logger.log(Level.SEVERE, "Failed to update job status");
+					logger.log(Level.SEVERE, "Failed to update jobContext status");
 				}
 			}
 		}
@@ -64,6 +55,6 @@ public class JobSubmitTask implements Runnable, Comparable<JobSubmitTask>
 	@Override
 	public int compareTo(JobSubmitTask o)
 	{
-		return Integer.compare(job.getJobPriority().value(), o.job.getJobPriority().value());
+		return Integer.compare(job.getContext().getPriority().value(), o.job.getContext().getPriority().value());
 	}
 }

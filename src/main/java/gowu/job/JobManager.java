@@ -1,5 +1,12 @@
 package gowu.job;
 
+import gowu.job.entities.Job;
+import gowu.job.entities.JobContext;
+import gowu.job.entities.JobIdentifier;
+import gowu.job.processors.JobProcessor;
+import gowu.job.processors.JobProcessorFactory;
+import gowu.job.storages.JobDirectoryProvider;
+
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.PriorityBlockingQueue;
@@ -64,17 +71,17 @@ public class JobManager
 
 	/**
 	 * To submit a job by the given JobContext. Returns jobId if the job succeeded to submit
-	 * @param job a JobContext represents a Job to be submit
+	 * @param jobContext a JobContext represents a Job to be submit
 	 * @return
 	 */
-	public String submitJob(JobContext job) throws JobException
+	public JobIdentifier submitJob(JobContext jobContext) throws JobException
 	{
 		if (executor == null || executor.isShutdown())
 		{
 			logger.fine("The executor has been shut down.");
 			return null;
 		}
-		if (job == null)
+		if (jobContext == null)
 		{
 			throw new JobException(JobException.JobErrorCode.INVALID_INPUT, "Job creation failed due to empty job entity");
 		}
@@ -84,10 +91,11 @@ public class JobManager
 		}
 
 		JobProcessorFactory jobProcessorFactory = JobProcessorFactory.getInstance(jobDirectoryProvider);
-		JobProcessor processor = jobProcessorFactory.createJobProcessor(job.getJobType());
+		JobProcessor jobProcessor = jobProcessorFactory.createJobProcessor(jobContext.getIdentifier().getType());
 		
-		JobContext jobContext = jobDirectoryProvider.createJob(job);
-		if (jobContext != null)
+		Job job = new Job.Builder(jobContext).build();
+		job = jobDirectoryProvider.createJob(job);
+		if (job != null)
 		{
 			logger.log(Level.FINE, "A new job just submitted {0}", job.toString());
 
@@ -98,7 +106,7 @@ public class JobManager
 			{
 				try
 				{
-					executor.execute(new JobSubmitTask(job, processor));
+					executor.execute(new JobSubmitTask(job, jobProcessor, jobDirectoryProvider));
 				} catch (RejectedExecutionException ex)
 				{
 					throw new JobException(JobException.JobErrorCode.JOB_REJECTED, "Job rejected by executor", ex);
@@ -114,17 +122,17 @@ public class JobManager
 			throw new JobException(JobException.JobErrorCode.CREATION_FAILED, "Job creation failed");
 		}
 		
-		return job.getJobId();
+		return jobContext.getIdentifier();
 	}
 
-	public String scheduleJob(JobContext job, long delay, TimeUnit unit) throws JobException
+	public JobIdentifier scheduleJob(JobContext jobContext, long delay, TimeUnit unit) throws JobException
 	{
 		if (executor == null || executor.isShutdown())
 		{
 			logger.fine("The executor has been shut down.");
 			return null;
 		}
-		if (job != null)
+		if (jobContext != null)
 		{
 			if (scheduleTimer == null)
 			{
@@ -137,7 +145,7 @@ public class JobManager
 				}
 			}
 			JobProcessorFactory jobProcessorFactory = JobProcessorFactory.getInstance(jobDirectoryProvider);
-			JobProcessor processor = jobProcessorFactory.createJobProcessor(job.getJobType());
+			JobProcessor processor = jobProcessorFactory.createJobProcessor(jobContext.getIdentifier().getType());
 			scheduleTimer.schedule(new TimerTask()
 			{
 				@Override
@@ -145,7 +153,7 @@ public class JobManager
 				{
 					try
 					{
-						submitJob(job);
+						submitJob(jobContext);
 					}
 					catch(JobException ex)
 					{
@@ -159,57 +167,57 @@ public class JobManager
 			throw new JobException(JobException.JobErrorCode.INTERNAL_ERROR, "Job scheduled failed due to empty job entity");
 		}
 		
-		return job.getJobId();
+		return jobContext.getIdentifier();
 	}
 
-	public JobContext getJob(String jobId) throws JobException
+	public Job getJob(JobIdentifier jobIdentifier) throws JobException
 	{
-		return jobDirectoryProvider.getJob(jobId);
+		return jobDirectoryProvider.getJob(jobIdentifier) == null ? null : jobDirectoryProvider.getJob(jobIdentifier);
 	}
 
-	public JobConstants.JobStatus getJobStatus(String jobId) throws JobException
+	public JobConstants.JobStatus getJobStatus(JobIdentifier jobId) throws JobException
 	{
-		JobContext job = this.getJob(jobId);
-		if (job == null)
+		Job jobContext = this.getJob(jobId);
+		if (jobContext == null)
 		{
 			throw new JobException(JobException.JobErrorCode.JOB_NOT_FOUND, String.format("Job not found for this jobId %s", jobId));
 		}
-		return job.getJobStatus();
+		return jobContext.getStatus();
 	}
 
-	public String cancelJob(JobContext job) throws JobException
+	public void cancelJob(JobIdentifier jobIdentifier) throws JobException
 	{
-		if(jobDirectoryProvider.getJob(job.getJobId()) != null)
+		Job job = jobDirectoryProvider.getJob(jobIdentifier);
+		if(job != null)
 		{
-			logger.fine(String.format("job with id %s is going to be canceled", job.getJobId()));
-			jobDirectoryProvider.updateJobStatus(job.getJobId(), JobConstants.JobStatus.REQUEST_FOR_CANCEL);
+			logger.fine(String.format("job with id %s is going to be canceled", jobIdentifier));
+			job.setStatus(JobConstants.JobStatus.REQUEST_FOR_CANCEL);
+			jobDirectoryProvider.updateJob(job);
 		}
 		else
 		{
-			throw new JobException(JobException.JobErrorCode.JOB_NOT_FOUND, String.format("Job not found for this jobId %s", job.getJobId()));
+			throw new JobException(JobException.JobErrorCode.JOB_NOT_FOUND, String.format("Job not found for this jobId %s", jobIdentifier));
 		}
-		
-		return job.getJobId();
 	}
 
-	public boolean isJobCancelled(String jobId) throws JobException
+	public boolean isJobCancelled(JobIdentifier jobIdentifier) throws JobException
 	{
-		return JobConstants.JobStatus.CANCELLED.equals(getJobStatus(jobId));
+		return JobConstants.JobStatus.CANCELLED.equals(getJobStatus(jobIdentifier));
 	}
 
-	public boolean isJobRequestForCancel(String jobId) throws JobException
+	public boolean isJobRequestForCancel(JobIdentifier jobIdentifier) throws JobException
 	{
-		return JobConstants.JobStatus.REQUEST_FOR_CANCEL.equals(getJobStatus(jobId));
+		return JobConstants.JobStatus.REQUEST_FOR_CANCEL.equals(getJobStatus(jobIdentifier));
 	}
 
-	public boolean isJobRunning(String jobId) throws JobException
+	public boolean isJobRunning(JobIdentifier jobIdentifier) throws JobException
 	{
-		return JobConstants.JobStatus.RUNNING.equals(getJobStatus(jobId));
+		return JobConstants.JobStatus.RUNNING.equals(getJobStatus(jobIdentifier));
 	}
 
-	public boolean isJobDone(String jobId) throws JobException
+	public boolean isJobDone(JobIdentifier jobIdentifier) throws JobException
 	{
-		JobConstants.JobStatus currentStatus = getJobStatus(jobId);
+		JobConstants.JobStatus currentStatus = getJobStatus(jobIdentifier);
 		return JobConstants.JobStatus.SUCCEEDED.equals(currentStatus) ||
 				JobConstants.JobStatus.FAILED.equals(currentStatus) ||
 				JobConstants.JobStatus.CANCELLED.equals(currentStatus) ||

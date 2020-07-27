@@ -1,4 +1,7 @@
-package gowu.job;
+package gowu.job.processors;
+
+import gowu.job.JobResult;
+import gowu.job.entities.JobContext;
 
 public interface JobCallback<T extends JobContext>
 {

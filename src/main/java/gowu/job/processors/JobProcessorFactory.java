@@ -1,6 +1,8 @@
-package gowu.job;
+package gowu.job.processors;
 
-import gowu.job.noop.NoOpJobProcessor;
+import gowu.job.JobConstants;
+import gowu.job.storages.JobDirectoryProvider;
+import gowu.job.JobException;
 
 public class JobProcessorFactory
 {
